@@ -7,11 +7,14 @@
 package main
 
 import (
-		"fmt"
-		"sort"
-		"database/sql"
-		"github.com/joncrlsn/pgutil"
-		"github.com/joncrlsn/misc"
+	"bytes"
+	"database/sql"
+	"fmt"
+	"sort"
+	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 // ==================================
@@ -49,6 +52,10 @@ func (c *ViewSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *ViewSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // NextRow increments the rowNum and tells you whether or not there are more
@@ -95,33 +102,75 @@ func (c ViewSchema) Change(obj interface{}) {
 	}
 }
 
-// compareViews outputs SQL to make the views match between DBs
-func compareViews(conn1 *sql.DB, conn2 *sql.DB) {
+var (
+	viewSqlTemplate = initViewSqlTemplate()
+)
+
+func initViewSqlTemplate() *template.Template {
 	sql := `
-	SELECT schemaname || '.' || viewname AS viewname
+	SELECT viewname AS viewname
 		, definition 
 	FROM pg_views 
-	WHERE schemaname NOT LIKE 'pg_%' AND schemaname!='infromation_schema'
+	WHERE  schemaname = '{{$.DbSchema}}'
 	ORDER BY viewname;
 	`
 
-	rowChan1, _ := pgutil.QueryStrings(conn1, sql)
-	rowChan2, _ := pgutil.QueryStrings(conn2, sql)
+	t := template.New("ViewSqlTmpl")
+	template.Must(t.Parse(sql))
+	return t
+}
 
-	rows1 := make(ViewRows, 0)
-	for row := range rowChan1 {
-		rows1 = append(rows1, row)
+// compareViews outputs SQL to make the views match between DBs
+func compareViews(conn1 *sql.DB, conn2 *sql.DB) {
+
+	buf1 := new(bytes.Buffer)
+	viewSqlTemplate.Execute(buf1, dbInfo1)
+
+	rowChan1, _ := pgutil.QueryStrings(conn1, buf1.String())
+	row1 := make(ViewRows, 0)
+	for r := range rowChan1 {
+		row1 = append(row1, r)
 	}
-	sort.Sort(rows1)
+	sort.Sort(row1)
 
+	buf2 := new(bytes.Buffer)
+	viewSqlTemplate.Execute(buf2, dbInfo2)
+
+	rowChan2, _ := pgutil.QueryStrings(conn2, buf2.String())
 	rows2 := make(ViewRows, 0)
-	for row := range rowChan2 {
-		rows2 = append(rows2, row)
+	for r := range rowChan2 {
+		rows2 = append(rows2, r)
 	}
 	sort.Sort(rows2)
 
+	// fmt.Println(newRows2)
+
+	// fmt.Println(conn1)
+	// sql := `
+	// SELECT schemaname || '.' || viewname AS viewname
+	// 	, definition
+	// FROM pg_views
+	// WHERE schemaname NOT LIKE 'pg_%' AND schemaname!='information_schema' AND schemaname != 'public' AND table_schema = '{{$.DbSchema}}'
+	// ORDER BY viewname;
+	// `
+
+	// rowChan1, _ := pgutil.QueryStrings(conn1, sql)
+	// rowChan2, _ := pgutil.QueryStrings(conn2, sql)
+
+	// rows1 := make(ViewRows, 0)
+	// for row := range rowChan1 {
+	// 	rows1 = append(rows1, row)
+	// }
+	// sort.Sort(rows1)
+
+	// rows2 := make(ViewRows, 0)
+	// for row := range rowChan2 {
+	// 	rows2 = append(rows2, row)
+	// }
+	// sort.Sort(rows2)
+
 	// We have to explicitly type this as Schema here
-	var schema1 Schema = &ViewSchema{rows: rows1, rowNum: -1}
+	var schema1 Schema = &ViewSchema{rows: row1, rowNum: -1}
 	var schema2 Schema = &ViewSchema{rows: rows2, rowNum: -1}
 
 	// Compare the views

@@ -9,11 +9,12 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var curlyBracketRegex = regexp.MustCompile("[{}]")
@@ -52,6 +53,10 @@ func (c *RoleSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *RoleSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // get returns the current row for the given key

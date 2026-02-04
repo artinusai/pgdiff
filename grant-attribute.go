@@ -10,11 +10,12 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
 	"sort"
 	"strings"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -108,6 +109,13 @@ func (c *GrantAttributeSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *GrantAttributeSchema) debug() {
+	// if c.rowNum >= len(c.rows) {
+	// 	return ""
+	// }
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // get returns the current row for the given key
@@ -225,7 +233,7 @@ func compareGrantAttributes(conn1 *sql.DB, conn2 *sql.DB) {
 	}
 	sort.Sort(rows1)
 	//for _, row := range rows1 {
-		//fmt.Printf("--1b compare:%s, col:%s, colAcl:%s\n", row["compare_name"], row["attribute_name"], row["attribute_acl"])
+	//fmt.Printf("--1b compare:%s, col:%s, colAcl:%s\n", row["compare_name"], row["attribute_name"], row["attribute_acl"])
 	//}
 
 	rows2 := make(GrantAttributeRows, 0)
@@ -234,7 +242,7 @@ func compareGrantAttributes(conn1 *sql.DB, conn2 *sql.DB) {
 	}
 	sort.Sort(rows2)
 	//for _, row := range rows2 {
-		//fmt.Printf("--2b compare:%s, col:%s, colAcl:%s\n", row["compare_name"], row["attribute_name"], row["attribute_acl"])
+	//fmt.Printf("--2b compare:%s, col:%s, colAcl:%s\n", row["compare_name"], row["attribute_name"], row["attribute_acl"])
 	//}
 
 	// We have to explicitly type this as Schema here for some unknown reason

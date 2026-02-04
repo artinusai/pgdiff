@@ -22,6 +22,7 @@ import (
 // Schema is a database definition (table, column, constraint, indes, role, etc) that can be
 // added, dropped, or changed to match another database.
 type Schema interface {
+	debug()
 	Compare(schema interface{}) int
 	Add()
 	Drop()
@@ -50,7 +51,6 @@ func init() {
  * Do the main logic
  */
 func main() {
-
 	var helpPtr = flag.BoolP("help", "?", false, "print help information")
 	var versionPtr = flag.BoolP("version", "V", false, "print version information")
 
@@ -86,8 +86,8 @@ func main() {
 	schemaType = strings.ToUpper(args[0])
 	fmt.Println("-- schemaType:", schemaType)
 
-	fmt.Println("-- db1:", dbInfo1)
-	fmt.Println("-- db2:", dbInfo2)
+	// fmt.Println("-- db1:", dbInfo1)
+	// fmt.Println("-- db2:", dbInfo2)
 	fmt.Println("-- Run the following SQL against db2:")
 
 	conn1, err := dbInfo1.Open()
@@ -119,6 +119,21 @@ func main() {
 		compareGrantAttributes(conn1, conn2)
 	} else if schemaType == "SCHEMA" {
 		compareSchematas(conn1, conn2)
+	} else if schemaType == "TABLE_PLUS" {
+		// fmt.Println(">>>>>>> 1")
+		compareTables(conn1, conn2)
+		// fmt.Println(">>>>>>> 2")
+		compareSequences(conn1, conn2)
+		// fmt.Println(">>>>>>> 3")
+		compareColumns(conn1, conn2)
+		// fmt.Println(">>>>>>> 4")
+		compareIndexes(conn1, conn2) // includes PK and Unique constraints
+		// fmt.Println(">>>>>>> 5")
+		compareForeignKeys(conn1, conn2)
+		// fmt.Println(">>>>>>> 6")
+		compareFunctions(conn1, conn2)
+		// fmt.Println(">>>>>>> 7")
+		compareTriggers(conn1, conn2)
 	} else if schemaType == "ROLE" {
 		compareRoles(conn1, conn2)
 	} else if schemaType == "SEQUENCE" {
@@ -126,6 +141,7 @@ func main() {
 	} else if schemaType == "TABLE" {
 		compareTables(conn1, conn2)
 	} else if schemaType == "COLUMN" {
+
 		compareColumns(conn1, conn2)
 	} else if schemaType == "TABLE_COLUMN" {
 		compareTableColumns(conn1, conn2)
@@ -161,23 +177,32 @@ func doDiff(db1 Schema, db2 Schema) {
 	more1 := db1.NextRow()
 	more2 := db2.NextRow()
 	for more1 || more2 {
+		// fmt.Println(">>>>>>>>> ----------- ")
+		// db1.debug()
+
 		compareVal := db1.Compare(db2)
 		if compareVal == 0 {
+			// fmt.Println(">>>>>>> CompareVal == 0")
 			// table and column match, look for non-identifying changes
 			db1.Change(db2)
+			// table and column match, look for non-identifying changes
 			more1 = db1.NextRow()
 			more2 = db2.NextRow()
 		} else if compareVal < 0 {
+			// fmt.Println(">>>>>>> CompareVal < 0")
 			// db2 is missing a value that db1 has
 			if more1 {
+				// fmt.Println(">>>>>> Add")
 				db1.Add()
 				more1 = db1.NextRow()
 			} else {
+				// fmt.Println(">>>>>> Drop")
 				// db1 is at the end
 				db2.Drop()
 				more2 = db2.NextRow()
 			}
 		} else if compareVal > 0 {
+			// fmt.Println(">>>>>>> CompareVal > 0")
 			// db2 has an extra column that we don't want
 			if more2 {
 				db2.Drop()
@@ -188,7 +213,11 @@ func doDiff(db1 Schema, db2 Schema) {
 				more1 = db1.NextRow()
 			}
 		}
+
+		// fmt.Println("----------- <<<<<<<<< ")
+		// os.Exit(0)
 	}
+	// fmt.Println(">>>>>>> End of do diff")
 }
 
 func usage() {

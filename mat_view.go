@@ -52,6 +52,10 @@ func (c *MatViewSchema) get(key string) string {
 	return c.rows[c.rowNum][key]
 }
 
+func (c *MatViewSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
+}
+
 // NextRow increments the rowNum and tells you whether or not there are more
 func (c *MatViewSchema) NextRow() bool {
 	if c.rowNum >= len(c.rows)-1 {
