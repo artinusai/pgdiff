@@ -10,12 +10,14 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -26,7 +28,7 @@ var (
 func initColumnSqlTemplate() *template.Template {
 	sql := `
 SELECT table_schema
-    ,  {{if eq $.DbSchema "*" }}table_schema || '.' || {{end}}table_name || '.' ||lpad(cast (ordinal_position as varchar), 5, '0')|| column_name AS compare_name
+    ,  {{if eq $.DbSchema "*" }}table_schema || '.' || {{end}}table_name || '.' || column_name AS compare_name
 	, table_name
     , column_name
     , data_type
@@ -128,6 +130,13 @@ func (c *ColumnSchema) get(key string) string {
 	return c.rows[c.rowNum][key]
 }
 
+func (c *ColumnSchema) debug() {
+	// if c.rowNum >= len(c.rows) {
+	// 	return ""
+	// }
+	fmt.Println(c.rows[c.rowNum])
+}
+
 // NextRow increments the rowNum and tells you whether or not there are more
 func (c *ColumnSchema) NextRow() bool {
 	if c.rowNum >= len(c.rows)-1 {
@@ -145,6 +154,15 @@ func (c *ColumnSchema) Compare(obj interface{}) int {
 	}
 
 	val := misc.CompareStrings(c.get("compare_name"), c2.get("compare_name"))
+	if val < 0 {
+		name1 := c.get("compare_name")
+		name2 := c2.get("compare_name")
+
+		fmt.Println(name1)
+		fmt.Println(name2)
+
+	}
+
 	return val
 }
 
@@ -171,11 +189,12 @@ func (c *ColumnSchema) Add() {
 		}
 	} else {
 		dataType := c.get("data_type")
+		// fmt.Println(dataType)
 		//if c.get("data_type") == "ARRAY" {
-			//fmt.Println("-- Note that adding of array data types are not yet generated properly.")
+		//fmt.Println("-- Note that adding of array data types are not yet generated properly.")
 		//}
 		if dataType == "ARRAY" {
-			dataType = c.get("array_type")+"[]"
+			dataType = c.get("array_type") + "[]"
 		}
 		//fmt.Printf("ALTER TABLE %s.%s ADD COLUMN %s %s", schema, c.get("table_name"), c.get("column_name"), c.get("data_type"))
 		fmt.Printf("ALTER TABLE %s.%s ADD COLUMN %s %s", schema, c.get("table_name"), c.get("column_name"), dataType)
@@ -185,14 +204,17 @@ func (c *ColumnSchema) Add() {
 		fmt.Printf(" NOT NULL")
 	}
 	if c.get("column_default") != "null" {
+		// fmt.Println(">>>>>>>> go")
 		fmt.Printf(" DEFAULT %s", c.get("column_default"))
+		// fmt.Println(">>>>>>>> done")
 	}
-	// NOTE: there are more identity column sequence options according to the PostgreSQL 
+	// NOTE: there are more identity column sequence options according to the PostgreSQL
 	// CREATE TABLE docs, but these do not appear to be available as of version 10.1
 	if c.get("is_identity") == "YES" {
 		fmt.Printf(" GENERATED %s AS IDENTITY", c.get("identity_generation"))
 	}
 	fmt.Printf(";\n")
+
 }
 
 // Drop prints SQL to drop the column
@@ -201,8 +223,16 @@ func (c *ColumnSchema) Drop() {
 	fmt.Printf("ALTER TABLE %s.%s DROP COLUMN IF EXISTS %s;\n", c.get("table_schema"), c.get("table_name"), c.get("column_name"))
 }
 
+var re = regexp.MustCompile(`^nextval\('[^']*\.([^']*)'::regclass\)`)
+
+func stripSchema(s string) string {
+	return re.ReplaceAllString(s, "nextval('${1}'::regclass)")
+	// return s
+}
+
 // Change handles the case where the table and column match, but the details do not
 func (c *ColumnSchema) Change(obj interface{}) {
+	// fmt.Println(">>>>>>>>>>>>>>>>> ")
 	c2, ok := obj.(*ColumnSchema)
 	if !ok {
 		fmt.Println("Error!!!, ColumnSchema.Change(obj) needs a ColumnSchema instance", c2)
@@ -211,11 +241,11 @@ func (c *ColumnSchema) Change(obj interface{}) {
 	// Adjust data type for array columns
 	dataType1 := c.get("data_type")
 	if dataType1 == "ARRAY" {
-		dataType1 = c.get("array_type")+"[]"
+		dataType1 = c.get("array_type") + "[]"
 	}
 	dataType2 := c2.get("data_type")
 	if dataType2 == "ARRAY" {
-		dataType2 = c2.get("array_type")+"[]"
+		dataType2 = c2.get("array_type") + "[]"
 	}
 
 	// Detect column type change (mostly varchar length, or number size increase)
@@ -262,8 +292,13 @@ func (c *ColumnSchema) Change(obj interface{}) {
 		if c2.get("column_default") != "null" {
 			fmt.Printf("ALTER TABLE %s.%s ALTER COLUMN %s DROP DEFAULT;\n", c2.get("table_schema"), c.get("table_name"), c.get("column_name"))
 		}
-	} else if c.get("column_default") != c2.get("column_default") {
-		fmt.Printf("ALTER TABLE %s.%s ALTER COLUMN %s SET DEFAULT %s;\n", c2.get("table_schema"), c.get("table_name"), c.get("column_name"), c.get("column_default"))
+	} else if stripSchema(c.get("column_default")) != stripSchema(c2.get("column_default")) {
+		// fmt.Println(">>>>> %%%%%%%%% BINGO %%%%%%%")
+		// cd1 := c.get("column_default")
+		// cd2 := c2.get("column_default")
+		// fmt.Println(cd1, cd2)
+
+		fmt.Printf("ALTER TABLE %s.%s ALTER COLUMN %s SET DEFAULT %s;\n", c2.get("table_schema"), c.get("table_name"), c.get("column_name"), stripSchema(c.get("column_default")))
 	}
 
 	// Detect identity column change
@@ -309,9 +344,11 @@ func (c *ColumnSchema) Change(obj interface{}) {
 func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 	buf1 := new(bytes.Buffer)
 	tpl.Execute(buf1, dbInfo1)
+	// fmt.Println(buf1)
 
 	buf2 := new(bytes.Buffer)
 	tpl.Execute(buf2, dbInfo2)
+	// fmt.Println(buf2)
 
 	rowChan1, _ := pgutil.QueryStrings(conn1, buf1.String())
 	rowChan2, _ := pgutil.QueryStrings(conn2, buf2.String())
@@ -319,9 +356,11 @@ func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 	//rows1 := make([]map[string]string, 500)
 	rows1 := make(ColumnRows, 0)
 	for row := range rowChan1 {
+
 		rows1 = append(rows1, row)
 	}
 	sort.Sort(rows1)
+	// fmt.Println(rows1)
 
 	//rows2 := make([]map[string]string, 500)
 	rows2 := make(ColumnRows, 0)
@@ -334,6 +373,7 @@ func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 	var schema1 Schema = &ColumnSchema{rows: rows1, rowNum: -1}
 	var schema2 Schema = &ColumnSchema{rows: rows2, rowNum: -1}
 
+	// fmt.Println("Doing diff")
 	// Compare the columns
 	doDiff(schema1, schema2)
 
@@ -342,14 +382,14 @@ func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 // compareColumns outputs SQL to make the columns match between two databases or schemas
 func compareColumns(conn1 *sql.DB, conn2 *sql.DB) {
 
-    compare(conn1, conn2, columnSqlTemplate)
+	compare(conn1, conn2, columnSqlTemplate)
 
 }
 
 // compareColumns outputs SQL to make the tables columns (without views columns) match between two databases or schemas
 func compareTableColumns(conn1 *sql.DB, conn2 *sql.DB) {
 
-    compare(conn1, conn2, tableColumnSqlTemplate)
+	compare(conn1, conn2, tableColumnSqlTemplate)
 
 }
 
@@ -362,4 +402,3 @@ func getMaxLength(maxLength string) (string, bool) {
 	}
 	return maxLength, true
 }
-

@@ -10,10 +10,11 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
 	"sort"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -152,6 +153,7 @@ func compareForeignKeys(conn1 *sql.DB, conn2 *sql.DB) {
 
 	buf1 := new(bytes.Buffer)
 	foreignKeySqlTemplate.Execute(buf1, dbInfo1)
+	// fmt.Println(buf1)
 
 	buf2 := new(bytes.Buffer)
 	foreignKeySqlTemplate.Execute(buf2, dbInfo2)
