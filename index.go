@@ -96,6 +96,10 @@ func (c *IndexSchema) get(key string) string {
 	return c.rows[c.rowNum][key]
 }
 
+func (c *IndexSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
+}
+
 // get returns the current row for the given key
 func (c *IndexSchema) getRow() map[string]string {
 	if c.rowNum >= len(c.rows) {

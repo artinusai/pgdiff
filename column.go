@@ -154,14 +154,14 @@ func (c *ColumnSchema) Compare(obj interface{}) int {
 	}
 
 	val := misc.CompareStrings(c.get("compare_name"), c2.get("compare_name"))
-	if val < 0 {
-		name1 := c.get("compare_name")
-		name2 := c2.get("compare_name")
+	// if val < 0 {
+	// 	name1 := c.get("compare_name")
+	// 	name2 := c2.get("compare_name")
 
-		fmt.Println(name1)
-		fmt.Println(name2)
+	// 	// fmt.Println(name1)
+	// 	// fmt.Println(name2)
 
-	}
+	// }
 
 	return val
 }

@@ -6,11 +6,14 @@
 
 package main
 
-import "fmt"
-import "sort"
-import "database/sql"
-import "github.com/joncrlsn/pgutil"
-import "github.com/joncrlsn/misc"
+import (
+	"database/sql"
+	"fmt"
+	"sort"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
+)
 
 // ==================================
 // SchemataRows definition
@@ -47,6 +50,10 @@ func (c *SchemataSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *SchemataSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // NextRow increments the rowNum and tells you whether or not there are more

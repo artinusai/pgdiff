@@ -10,10 +10,11 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
 	"sort"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -86,6 +87,10 @@ func (c *OwnerSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *OwnerSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // get returns the current row for the given key

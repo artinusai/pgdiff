@@ -10,11 +10,12 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
 	"sort"
 	"strings"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -82,6 +83,13 @@ func (c *FunctionSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *FunctionSchema) debug() {
+	// if c.rowNum >= len(c.rows) {
+	// 	return ""
+	// }
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // NextRow increments the rowNum and tells you whether or not there are more

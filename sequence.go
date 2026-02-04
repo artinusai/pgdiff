@@ -10,10 +10,11 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
 	"sort"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -82,6 +83,10 @@ func (c *SequenceSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *SequenceSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // NextRow increments the rowNum and tells you whether or not there are more

@@ -10,11 +10,12 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
 	"sort"
 	"strings"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -102,6 +103,10 @@ func (c *GrantRelationshipSchema) get(key string) string {
 		return ""
 	}
 	return c.rows[c.rowNum][key]
+}
+
+func (c *GrantRelationshipSchema) debug() {
+	fmt.Println(c.rows[c.rowNum])
 }
 
 // get returns the current row for the given key

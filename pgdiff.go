@@ -22,6 +22,7 @@ import (
 // Schema is a database definition (table, column, constraint, indes, role, etc) that can be
 // added, dropped, or changed to match another database.
 type Schema interface {
+	debug()
 	Compare(schema interface{}) int
 	Add()
 	Drop()
@@ -177,6 +178,7 @@ func doDiff(db1 Schema, db2 Schema) {
 	more2 := db2.NextRow()
 	for more1 || more2 {
 		// fmt.Println(">>>>>>>>> ----------- ")
+		// db1.debug()
 
 		compareVal := db1.Compare(db2)
 		if compareVal == 0 {
