@@ -10,7 +10,9 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 	"text/template"
 
 	"github.com/joncrlsn/misc"
@@ -88,6 +90,13 @@ func (c *ForeignKeySchema) get(key string) string {
 	return c.rows[c.rowNum][key]
 }
 
+func (c *ForeignKeySchema) debug() {
+	// if c.rowNum >= len(c.rows) {
+	// 	return ""
+	// }
+	fmt.Println(c.rows[c.rowNum])
+}
+
 // get returns the current row for the given key
 func (c *ForeignKeySchema) getRow() map[string]string {
 	if c.rowNum >= len(c.rows) {
@@ -105,6 +114,32 @@ func (c *ForeignKeySchema) NextRow() bool {
 	return !c.done
 }
 
+func stripSchemaFK(input string) string {
+	// Pattern captures:
+	// 1. "REFERENCES " (case-insensitive)
+	// 2. The schema name
+	// 3. The dot
+	re := regexp.MustCompile(`(?i)(REFERENCES\s+)(\w+)\.`)
+
+	return re.ReplaceAllStringFunc(input, func(match string) string {
+		submatches := re.FindStringSubmatch(match)
+		if len(submatches) < 3 {
+			return match
+		}
+
+		prefix := submatches[1] // e.g., "REFERENCES "
+		schema := submatches[2] // e.g., "perf2"
+
+		// If the schema is "auth", return the original match (do nothing)
+		if strings.ToLower(schema) == "auth" {
+			return match
+		}
+
+		// Otherwise, return only the "REFERENCES " prefix, effectively stripping "schema."
+		return prefix
+	})
+}
+
 // Compare tells you, in one pass, whether or not the first row matches, is less than, or greater than the second row
 func (c *ForeignKeySchema) Compare(obj interface{}) int {
 	c2, ok := obj.(*ForeignKeySchema)
@@ -113,13 +148,19 @@ func (c *ForeignKeySchema) Compare(obj interface{}) int {
 		return +999
 	}
 
+	// fmt.Println("C1", c.get("compare_name"))
+	// fmt.Println("C2", c2.get("compare_name"))
+
 	//fmt.Printf("Comparing %s with %s", c.get("table_name"), c2.get("table_name"))
 	val := misc.CompareStrings(c.get("compare_name"), c2.get("compare_name"))
 	if val != 0 {
 		return val
 	}
 
-	val = misc.CompareStrings(c.get("constraint_def"), c2.get("constraint_def"))
+	// fmt.Println("C1", c.get("constraint_def"))
+	// fmt.Println("C2", c2.get("constraint_def"))
+
+	val = misc.CompareStrings(stripSchemaFK(c.get("constraint_def")), stripSchemaFK(c2.get("constraint_def")))
 	return val
 }
 
@@ -129,7 +170,7 @@ func (c *ForeignKeySchema) Add() {
 	if schema == "*" {
 		schema = c.get("schema_name")
 	}
-	fmt.Printf("ALTER TABLE %s.%s ADD CONSTRAINT %s %s;\n", schema, c.get("table_name"), c.get("fk_name"), c.get("constraint_def"))
+	fmt.Printf("ALTER TABLE %s.%s ADD CONSTRAINT %s %s;\n", schema, c.get("table_name"), c.get("fk_name"), stripSchemaFK(c.get("constraint_def")))
 }
 
 // Drop returns SQL to drop the foreign key

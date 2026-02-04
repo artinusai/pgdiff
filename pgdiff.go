@@ -176,29 +176,31 @@ func doDiff(db1 Schema, db2 Schema) {
 	more1 := db1.NextRow()
 	more2 := db2.NextRow()
 	for more1 || more2 {
-		fmt.Println(">>>>>>>>> ----------- ")
+		// fmt.Println(">>>>>>>>> ----------- ")
 
 		compareVal := db1.Compare(db2)
 		if compareVal == 0 {
-			fmt.Println(">>>>>>> CompareVal == 0")
+			// fmt.Println(">>>>>>> CompareVal == 0")
 			// table and column match, look for non-identifying changes
 			db1.Change(db2)
 			// table and column match, look for non-identifying changes
 			more1 = db1.NextRow()
 			more2 = db2.NextRow()
 		} else if compareVal < 0 {
-			fmt.Println(">>>>>>> CompareVal < 0")
+			// fmt.Println(">>>>>>> CompareVal < 0")
 			// db2 is missing a value that db1 has
 			if more1 {
+				// fmt.Println(">>>>>> Add")
 				db1.Add()
 				more1 = db1.NextRow()
 			} else {
+				// fmt.Println(">>>>>> Drop")
 				// db1 is at the end
 				db2.Drop()
 				more2 = db2.NextRow()
 			}
 		} else if compareVal > 0 {
-			fmt.Println(">>>>>>> CompareVal > 0")
+			// fmt.Println(">>>>>>> CompareVal > 0")
 			// db2 has an extra column that we don't want
 			if more2 {
 				db2.Drop()
@@ -210,10 +212,10 @@ func doDiff(db1 Schema, db2 Schema) {
 			}
 		}
 
-		fmt.Println("----------- <<<<<<<<< ")
-		os.Exit(0)
+		// fmt.Println("----------- <<<<<<<<< ")
+		// os.Exit(0)
 	}
-	fmt.Println(">>>>>>> End of do diff")
+	// fmt.Println(">>>>>>> End of do diff")
 }
 
 func usage() {

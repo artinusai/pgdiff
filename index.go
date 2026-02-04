@@ -10,11 +10,13 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/joncrlsn/misc"
-	"github.com/joncrlsn/pgutil"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
+
+	"github.com/joncrlsn/misc"
+	"github.com/joncrlsn/pgutil"
 )
 
 var (
@@ -123,8 +125,11 @@ func (c *IndexSchema) Compare(obj interface{}) int {
 		fmt.Printf("--Comparing (table_name and/or index_name is empty): %v\n", c.getRow())
 		fmt.Printf("--           %v\n", c2.getRow())
 	}
+	// fmt.Println((c.get("compare_name")))
+	// fmt.Println((c2.get("compare_name")))
 
 	val := misc.CompareStrings(c.get("compare_name"), c2.get("compare_name"))
+	// fmt.Println(val)
 	return val
 }
 
@@ -175,6 +180,33 @@ func (c *IndexSchema) Drop() {
 	fmt.Printf("DROP INDEX %s.%s;\n", c.get("schema_name"), c.get("index_name"))
 }
 
+func stripSchemaIndex(input string) string {
+	// Pattern logic:
+	// (?i)          -> Case-insensitive
+	// (\bON\s+|\bREFERENCES\s+) -> Capture Group 1: Match 'ON' or 'REFERENCES' plus whitespace
+	// (\w+)         -> Capture Group 2: The schema name
+	// \.            -> The literal dot
+	re := regexp.MustCompile(`(?i)(\bON\s+|\bREFERENCES\s+)(\w+)\.`)
+
+	return re.ReplaceAllStringFunc(input, func(match string) string {
+		submatches := re.FindStringSubmatch(match)
+		if len(submatches) < 3 {
+			return match
+		}
+
+		keywordPart := submatches[1] // e.g., "ON " or "REFERENCES "
+		schemaName := submatches[2]  // e.g., "perf2"
+
+		// Protect the "auth" schema
+		if strings.ToLower(schemaName) == "auth" {
+			return match
+		}
+
+		// Strip the schema by returning only the keyword + space
+		return keywordPart
+	})
+}
+
 // Change handles the case where the table and column match, but the details do not
 func (c *IndexSchema) Change(obj interface{}) {
 	c2, ok := obj.(*IndexSchema)
@@ -193,6 +225,9 @@ func (c *IndexSchema) Change(obj interface{}) {
 		fmt.Printf("-- Change: Unexpected situation in index.go: index_def is empty for 2: %v 1: %v\n", c2.getRow(), c.getRow())
 		return
 	}
+
+	// fmt.Println(c.get("contraint_def"))
+	// fmt.Println(c2.get("contraint_def"))
 
 	if c.get("constraint_def") != c2.get("constraint_def") {
 		// c1.constraint and c2.constraint are just different
@@ -232,8 +267,11 @@ func (c *IndexSchema) Change(obj interface{}) {
 
 	// At this point, we know that the constraint_def matches.  Compare the index_def
 
-	indexDef1 := c.get("index_def")
-	indexDef2 := c2.get("index_def")
+	indexDef1 := stripSchemaIndex(c.get("index_def"))
+	indexDef2 := stripSchemaIndex(c2.get("index_def"))
+
+	// fmt.Println(indexDef1)
+	// fmt.Println(indexDef2)
 
 	// If we are comparing two different schemas against each other, we need to do
 	// some modification of the first index_def so it looks more like the second
