@@ -99,18 +99,15 @@ INNER JOIN information_schema.tables b
     ON a.table_schema = b.table_schema AND
        a.table_name = b.table_name AND
        b.table_type = 'BASE TABLE'
-WHERE is_updatable = 'YES'
-{{if eq $.DbSchema "*" }}
-AND a.table_schema NOT LIKE 'pg_%' 
-AND a.table_schema <> 'information_schema' 
-{{else}}
-AND a.table_schema = '{{$.DbSchema}}'
-{{end}}
-{{ if $.TableType }}
-AND b.table_type = '{{ $.TableType }}'
-{{ end }}
-ORDER BY compare_name ASC;
-`
+	WHERE is_updatable = 'YES'
+	{{if eq $.DbSchema "*" }}
+	AND a.table_schema NOT LIKE 'pg_%' 
+	AND a.table_schema <> 'information_schema' 
+	{{else}}
+	AND a.table_schema = '{{$.DbSchema}}'
+	{{end}}
+	ORDER BY compare_name ASC;
+	`
 	t := template.New("ColumnSqlTmpl")
 	template.Must(t.Parse(sql))
 	return t
@@ -369,11 +366,11 @@ func (c *ColumnSchema) Change(obj interface{}) {
 // compare outputs SQL to make the columns match between two databases or schemas
 func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 	buf1 := new(bytes.Buffer)
-	tpl.Execute(buf1, dbInfo1)
+	check("rendering source column SQL template", tpl.Execute(buf1, dbInfo1))
 	// fmt.Println(buf1)
 
 	buf2 := new(bytes.Buffer)
-	tpl.Execute(buf2, dbInfo2)
+	check("rendering target column SQL template", tpl.Execute(buf2, dbInfo2))
 	// fmt.Println(buf2)
 
 	rowChan1, _ := pgutil.QueryStrings(conn1, buf1.String())

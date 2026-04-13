@@ -8,7 +8,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/md5"
 	"database/sql"
 	"fmt"
 	"regexp"
@@ -27,24 +26,25 @@ var (
 // Initializes the Sql template
 func initFunctionSqlTemplate() *template.Template {
 	sql := `
-    SELECT n.nspname                 AS schema_name
-        , {{if eq $.DbSchema "*" }}n.nspname || '.' || {{end}}p.proname AS compare_name
-        , p.proname                  AS function_name
-        , p.oid::regprocedure        AS fancy
-        , t.typname                  AS return_type
-        , pg_get_functiondef(p.oid)  AS definition
-    FROM pg_proc AS p
-    JOIN pg_type t ON (p.prorettype = t.oid)
-    JOIN pg_namespace n ON (n.oid = p.pronamespace)
-    JOIN pg_language l ON (p.prolang = l.oid AND l.lanname IN ('c','plpgsql', 'sql'))
-    WHERE true
-	{{if eq $.DbSchema "*" }}
-    AND n.nspname NOT LIKE 'pg_%' 
-    AND n.nspname <> 'information_schema' 
-    {{else}}
-    AND n.nspname = '{{$.DbSchema}}'
-    {{end}};
-	`
+	    SELECT n.nspname                 AS schema_name
+	        , {{if eq $.DbSchema "*" }}n.nspname || '.' || {{end}}p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS compare_name
+	        , p.proname                  AS function_name
+	        , pg_get_function_identity_arguments(p.oid) AS identity_args
+	        , t.typname                  AS return_type
+	        , pg_get_functiondef(p.oid)  AS definition
+	    FROM pg_proc AS p
+	    JOIN pg_type t ON (p.prorettype = t.oid)
+	    JOIN pg_namespace n ON (n.oid = p.pronamespace)
+	    JOIN pg_language l ON (p.prolang = l.oid AND l.lanname IN ('c','plpgsql', 'sql'))
+	    WHERE true
+		{{if eq $.DbSchema "*" }}
+	    AND n.nspname NOT LIKE 'pg_%' 
+	    AND n.nspname <> 'information_schema' 
+	    {{else}}
+	    AND n.nspname = '{{$.DbSchema}}'
+	    {{end}}
+	    ORDER BY compare_name;
+		`
 	t := template.New("FunctionSqlTmpl")
 	template.Must(t.Parse(sql))
 	return t
@@ -118,28 +118,16 @@ func (c *FunctionSchema) Compare(obj interface{}) int {
 
 // Add returns SQL to create the function
 func (c FunctionSchema) Add() {
-	// If we are comparing two different schemas against each other, we need to do some
-	// modification of the first function definition so we create it in the right schema
-	functionDef := c.get("definition")
-	if dbInfo1.DbSchema != dbInfo2.DbSchema {
-		functionDef = strings.Replace(
-			functionDef,
-			fmt.Sprintf("FUNCTION %s.%s(", c.get("schema_name"), c.get("function_name")),
-			fmt.Sprintf("FUNCTION %s.%s(", dbInfo2.DbSchema, c.get("function_name")),
-			-1)
-	}
-
 	fmt.Println("-- STATEMENT-BEGIN")
-	fmt.Println(functionDef, ";")
+	fmt.Printf("%s;\n", rewriteFunctionSchema(c.get("definition"), c.get("schema_name"), functionTargetSchema(c.get("schema_name")), c.get("function_name")))
 	fmt.Println("-- STATEMENT-END")
 }
 
 // Drop returns SQL to drop the function
 func (c FunctionSchema) Drop() {
 	fmt.Println("-- Note that CASCADE in the statement below will also drop any triggers depending on this function.")
-	fmt.Println("-- Also, if there are two functions with this name, you will want to add arguments to identify the correct one to drop.")
 	fmt.Println("-- (See http://www.postgresql.org/docs/9.4/interactive/sql-dropfunction.html) ")
-	fmt.Printf("DROP FUNCTION %s.%s CASCADE;\n", c.get("schema_name"), c.get("function_name"))
+	fmt.Printf("DROP FUNCTION %s.%s(%s) CASCADE;\n", c.get("schema_name"), c.get("function_name"), c.get("identity_args"))
 }
 
 // Change handles the case where the function names match, but the definition does not
@@ -149,50 +137,49 @@ func (c FunctionSchema) Change(obj interface{}) {
 		fmt.Println("Error!!!, Change needs a FunctionSchema instance", c2)
 	}
 
-	re := regexp.MustCompile(`(FUNCTION\s+)([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+\(\))`)
-
-	replacer := func(match string) string {
-		sub := re.FindStringSubmatch(match)
-		prefix := sub[1] // "FUNCTION "
-		schema := sub[2] // "drywall"
-		fnName := sub[3] // "set_alert_state_timestamps()"
-
-		if schema == "common" {
-			return match
-		}
-		return prefix + fnName
-	}
-
-	def_c1 := strings.TrimSpace(re.ReplaceAllStringFunc(c.get("definition"), replacer))
-	def_c2 := strings.TrimSpace(re.ReplaceAllStringFunc(c2.get("definition"), replacer))
-
-	remove_whitespace := regexp.MustCompile(`\s+`)
-	def_c1 = remove_whitespace.ReplaceAllString(def_c1, "")
-	def_c2 = remove_whitespace.ReplaceAllString(def_c2, "")
-
-	// Hashing and removing whitespace to normalize strings before comparing them
-	// This helps fix any line break or tabs/spaces
-	h1 := md5.Sum([]byte(def_c1))
-	h2 := md5.Sum([]byte(def_c2))
-
-	if h1 != h2 {
-
-		// If we are comparing two different schemas against each other, we need to do some
-		// modification of the first function definition so we create it in the right schema
-		functionDef := c.get("definition")
-		if dbInfo1.DbSchema != dbInfo2.DbSchema {
-			functionDef = strings.Replace(
-				functionDef,
-				fmt.Sprintf("FUNCTION %s.%s(", c.get("schema_name"), c.get("function_name")),
-				fmt.Sprintf("FUNCTION %s.%s(", dbInfo2.DbSchema, c.get("function_name")),
-				-1)
-		}
-
+	def1 := normalizeFunctionDefinition(c.get("definition"), c.get("schema_name"), c.get("function_name"))
+	def2 := normalizeFunctionDefinition(c2.get("definition"), c2.get("schema_name"), c2.get("function_name"))
+	if def1 != def2 {
 		// The definition column has everything needed to rebuild the function
 		fmt.Println("-- STATEMENT-BEGIN")
-		fmt.Printf("%s;\n", functionDef)
+		fmt.Printf("%s;\n", rewriteFunctionSchema(c.get("definition"), c.get("schema_name"), functionTargetSchema(c.get("schema_name")), c.get("function_name")))
 		fmt.Println("-- STATEMENT-END")
 	}
+}
+
+var functionWhitespacePattern = regexp.MustCompile(`\s+`)
+
+func functionTargetSchema(schemaName string) string {
+	if dbInfo1.DbSchema != dbInfo2.DbSchema {
+		return dbInfo2.DbSchema
+	}
+	return schemaName
+}
+
+func rewriteFunctionSchema(definition string, fromSchema string, toSchema string, functionName string) string {
+	if fromSchema == toSchema {
+		return definition
+	}
+	return strings.Replace(
+		definition,
+		fmt.Sprintf("FUNCTION %s.%s(", fromSchema, functionName),
+		fmt.Sprintf("FUNCTION %s.%s(", toSchema, functionName),
+		1,
+	)
+}
+
+func stripFunctionDefinitionSchema(definition string, schemaName string, functionName string) string {
+	return strings.Replace(
+		definition,
+		fmt.Sprintf("FUNCTION %s.%s(", schemaName, functionName),
+		fmt.Sprintf("FUNCTION %s(", functionName),
+		1,
+	)
+}
+
+func normalizeFunctionDefinition(definition string, schemaName string, functionName string) string {
+	normalized := strings.TrimSpace(stripFunctionDefinitionSchema(definition, schemaName, functionName))
+	return functionWhitespacePattern.ReplaceAllString(normalized, "")
 }
 
 // ==================================

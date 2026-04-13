@@ -243,31 +243,61 @@ func (c RoleSchema) Change(obj interface{}) {
 		fmt.Printf("ALTER ROLE %s%s;\n", c.get("rolname"), options)
 	}
 
-	if c.get("memberof") != c2.get("memberof") {
-		fmt.Println(c.get("memberof"), "!=", c2.get("memberof"))
-
-		// Remove the curly brackets
-		memberof1 := curlyBracketRegex.ReplaceAllString(c.get("memberof"), "")
-		memberof2 := curlyBracketRegex.ReplaceAllString(c2.get("memberof"), "")
-
-		// Split
-		membersof1 := strings.Split(memberof1, ",")
-		membersof2 := strings.Split(memberof2, ",")
-
+	membersOf1 := normalizeRoleMemberships(c.get("memberof"))
+	membersOf2 := normalizeRoleMemberships(c2.get("memberof"))
+	if !stringSlicesEqual(membersOf1, membersOf2) {
 		// TODO: Define INHERIT or not
-		for _, mo1 := range membersof1 {
-			if !misc.ContainsString(membersof2, mo1) {
+		for _, mo1 := range membersOf1 {
+			if !misc.ContainsString(membersOf2, mo1) {
 				fmt.Printf("GRANT %s TO %s;\n", mo1, c.get("rolname"))
 			}
 		}
 
-		for _, mo2 := range membersof2 {
-			if !misc.ContainsString(membersof1, mo2) {
+		for _, mo2 := range membersOf2 {
+			if !misc.ContainsString(membersOf1, mo2) {
 				fmt.Printf("REVOKE %s FROM %s;\n", mo2, c.get("rolname"))
 			}
 		}
-
 	}
+}
+
+func normalizeRoleMemberships(memberOf string) []string {
+	if memberOf == "" || memberOf == "null" || memberOf == "{}" {
+		return []string{}
+	}
+
+	memberOf = curlyBracketRegex.ReplaceAllString(memberOf, "")
+	if len(memberOf) == 0 {
+		return []string{}
+	}
+
+	seen := make(map[string]struct{})
+	normalized := make([]string, 0)
+	for _, rawMember := range strings.Split(memberOf, ",") {
+		member := strings.TrimSpace(rawMember)
+		if len(member) == 0 {
+			continue
+		}
+		if _, exists := seen[member]; exists {
+			continue
+		}
+		seen[member] = struct{}{}
+		normalized = append(normalized, member)
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func stringSlicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for idx := range left {
+		if left[idx] != right[idx] {
+			return false
+		}
+	}
+	return true
 }
 
 /*

@@ -1,9 +1,9 @@
 #!/bin/bash
-#
-# Useful for visually inspecting the output SQL to verify it is doing what it should
-#
+set -euo pipefail
 
+source ./assert.sh
 source ./start-fresh.sh >/dev/null
+
 echo
 echo ==========================================================
 echo
@@ -12,13 +12,18 @@ echo
 # Compare the functions between two schemas in the same database
 #
 
-./populate-db.sh db1 "$(cat << 'EOF' 
+./populate-db.sh db1 "$(cat << 'EOF'
 CREATE SCHEMA s1;
 CREATE OR REPLACE FUNCTION s1.increment(i integer) RETURNS integer AS $$
     BEGIN
             RETURN i + 1;
     END;
 $$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION s1.scale(integer) RETURNS integer
+    AS 'select $1 * 2;'
+    LANGUAGE SQL
+    IMMUTABLE
+    RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION s1.add(integer, integer) RETURNS integer
     AS 'select $1 + $2;'
     LANGUAGE SQL
@@ -29,6 +34,11 @@ CREATE FUNCTION s1.add(integer, integer) RETURNS integer
 CREATE SCHEMA s2;
 CREATE OR REPLACE FUNCTION s2.add(bigint, bigint) RETURNS bigint
     AS 'select $1 + $2;'
+    LANGUAGE SQL
+    IMMUTABLE
+    RETURNS NULL ON NULL INPUT;
+CREATE OR REPLACE FUNCTION s2.scale(integer) RETURNS integer
+    AS 'select $1 * 3;'
     LANGUAGE SQL
     IMMUTABLE
     RETURNS NULL ON NULL INPUT;
@@ -43,24 +53,27 @@ EOF
 
 echo
 echo "# Compare the functions between two schemas in the same database"
-echo "# Expect SQL (pseudocode):"
-echo "#   Add function s2.increment"
-echo "#   Replace function s2.add"
-echo "#   Drop function s2.minus"
+echo "# Expect overload-aware add/drop behavior and a replace for s2.scale"
 echo
 
-../pgdiff -U "u1" -W "asdf" -H "localhost" -D "db1" -S "s1" -O "sslmode=disable" \
-          -u "u1" -w "asdf" -h "localhost" -d "db1" -s "s2" -o "sslmode=disable" \
-          FUNCTION #| grep -v '^-- '
+output=$(../pgdiff -U "u1" -W "asdf" -H "localhost" -D "db1" -S "s1" -O "sslmode=disable" \
+                  -u "u1" -w "asdf" -h "localhost" -d "db1" -s "s2" -o "sslmode=disable" \
+                  FUNCTION | clean_pgdiff_output)
+assert_contains "$output" "DROP FUNCTION s2.add(bigint, bigint) CASCADE;"
+assert_contains "$output" "DROP FUNCTION s2.minus(integer, integer) CASCADE;"
+assert_contains "$output" "CREATE OR REPLACE FUNCTION s2.increment(i integer)"
+assert_contains "$output" "CREATE OR REPLACE FUNCTION s2.add(integer, integer)"
+assert_contains "$output" "CREATE OR REPLACE FUNCTION s2.scale(integer)"
+printf '%s\n' "$output"
+
 echo
 echo ==========================================================
 echo
 
-
 #
 # Compare the functions in all schemas between two databases
 #
-./populate-db.sh db2 "$(cat << 'EOF' 
+./populate-db.sh db2 "$(cat << 'EOF'
 CREATE SCHEMA s1;
 CREATE OR REPLACE FUNCTION s1.increment(i integer) RETURNS integer AS $$
     BEGIN
@@ -89,17 +102,18 @@ CREATE FUNCTION s2.minus(integer, integer) RETURNS integer
 EOF
 )"
 
-
 echo
 echo "# Compare the functions in all schemas between two databases"
-echo "# Expect SQL (pseudocode):"
-echo "#   Add function s1.add"
-echo "#   Change/Replace function s2.add"
-echo "#   Drop function s1.addition"
+echo "# Expect overload-aware add/drop behavior across all schemas"
 echo
 
-../pgdiff -U "u1" -W "asdf" -H "localhost" -D "db1" -S "*" -O "sslmode=disable" \
-          -u "u1" -w "asdf" -h "localhost" -d "db2" -s "*" -o "sslmode=disable" \
-          FUNCTION #| grep -v '^-- '
+output=$(../pgdiff -U "u1" -W "asdf" -H "localhost" -D "db1" -S "*" -O "sslmode=disable" \
+                  -u "u1" -w "asdf" -h "localhost" -d "db2" -s "*" -o "sslmode=disable" \
+                  FUNCTION | clean_pgdiff_output)
+assert_contains "$output" "CREATE OR REPLACE FUNCTION s1.add(integer, integer)"
+assert_contains "$output" "DROP FUNCTION s1.addition(integer, integer) CASCADE;"
+assert_contains "$output" "CREATE OR REPLACE FUNCTION s2.add(bigint, bigint)"
+assert_contains "$output" "DROP FUNCTION s2.add(integer, integer) CASCADE;"
+printf '%s\n' "$output"
 echo
 echo
