@@ -38,6 +38,19 @@ SELECT table_schema
     , is_identity
     , identity_generation
     , substring(udt_name from 2) AS array_type
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_namespace n
+            INNER JOIN pg_catalog.pg_class c
+                ON c.relnamespace = n.oid
+               AND c.relname = table_name
+            INNER JOIN pg_catalog.pg_inherits i
+                ON i.inhrelid = c.oid
+            WHERE n.nspname = table_schema
+        ) THEN 'true'
+        ELSE 'false'
+      END AS is_inherited
 FROM information_schema.columns
 WHERE is_updatable = 'YES'
 {{if eq $.DbSchema "*" }}
@@ -68,6 +81,19 @@ SELECT a.table_schema
     , is_nullable
     , column_default
     , character_maximum_length
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_namespace n
+            INNER JOIN pg_catalog.pg_class c
+                ON c.relnamespace = n.oid
+               AND c.relname = a.table_name
+            INNER JOIN pg_catalog.pg_inherits i
+                ON i.inhrelid = c.oid
+            WHERE n.nspname = a.table_schema
+        ) THEN 'true'
+        ELSE 'false'
+      END AS is_inherited
 FROM information_schema.columns a
 INNER JOIN information_schema.tables b
     ON a.table_schema = b.table_schema AND
@@ -359,6 +385,7 @@ func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 
 		rows1 = append(rows1, row)
 	}
+	rows1 = filterColumnRows(rows1)
 	sort.Sort(rows1)
 	// fmt.Println(rows1)
 
@@ -367,6 +394,7 @@ func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 	for row := range rowChan2 {
 		rows2 = append(rows2, row)
 	}
+	rows2 = filterColumnRows(rows2)
 	sort.Sort(&rows2)
 
 	// We have to explicitly type this as Schema here for some unknown reason
