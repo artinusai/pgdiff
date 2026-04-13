@@ -8,8 +8,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -146,8 +148,34 @@ func (c FunctionSchema) Change(obj interface{}) {
 	if !ok {
 		fmt.Println("Error!!!, Change needs a FunctionSchema instance", c2)
 	}
-	if c.get("definition") != c2.get("definition") {
-		fmt.Println("-- This function is different so we'll recreate it:")
+
+	re := regexp.MustCompile(`(FUNCTION\s+)([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+\(\))`)
+
+	replacer := func(match string) string {
+		sub := re.FindStringSubmatch(match)
+		prefix := sub[1] // "FUNCTION "
+		schema := sub[2] // "drywall"
+		fnName := sub[3] // "set_alert_state_timestamps()"
+
+		if schema == "common" {
+			return match
+		}
+		return prefix + fnName
+	}
+
+	def_c1 := strings.TrimSpace(re.ReplaceAllStringFunc(c.get("definition"), replacer))
+	def_c2 := strings.TrimSpace(re.ReplaceAllStringFunc(c2.get("definition"), replacer))
+
+	remove_whitespace := regexp.MustCompile(`\s+`)
+	def_c1 = remove_whitespace.ReplaceAllString(def_c1, "")
+	def_c2 = remove_whitespace.ReplaceAllString(def_c2, "")
+
+	// Hashing and removing whitespace to normalize strings before comparing them
+	// This helps fix any line break or tabs/spaces
+	h1 := md5.Sum([]byte(def_c1))
+	h2 := md5.Sum([]byte(def_c2))
+
+	if h1 != h2 {
 
 		// If we are comparing two different schemas against each other, we need to do some
 		// modification of the first function definition so we create it in the right schema

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -106,6 +107,9 @@ func (c *TriggerSchema) Compare(obj interface{}) int {
 	}
 
 	val := misc.CompareStrings(c.get("compare_name"), c2.get("compare_name"))
+
+	// os.Exit(0)
+
 	return val
 }
 
@@ -138,7 +142,29 @@ func (c TriggerSchema) Change(obj interface{}) {
 	if !ok {
 		fmt.Println("Error!!!, Change needs a TriggerSchema instance", c2)
 	}
-	if c.get("trigger_def") != c2.get("trigger_def") {
+
+	re := regexp.MustCompile(`(ON\s+)([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)`)
+
+	replacer := func(match string) string {
+		// Find submatches for this specific match
+		sub := re.FindStringSubmatch(match)
+		prefix := sub[1] // "ON "
+		schema := sub[2] // e.g., "drywall"
+		table := sub[3]  // e.g., "alert_entity"
+
+		// If schema is not "common", remove it
+		if schema != "common" {
+			return prefix + table
+		}
+		// If it is "common", return the original match
+		return match
+	}
+
+	// 2. Use ReplaceAllStringFunc to handle the logic
+	td_c1 := re.ReplaceAllStringFunc(c.get("trigger_def"), replacer)
+	td_c2 := re.ReplaceAllStringFunc(c2.get("trigger_def"), replacer)
+
+	if td_c1 != td_c2 {
 		fmt.Println("-- This function looks different so we'll drop and recreate it:")
 
 		// If we are comparing two different schemas against each other, we need to do some
