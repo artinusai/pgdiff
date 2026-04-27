@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# pgdiff.sh runs a compare on each schema type in the order that usually creates the fewest conflicts.  
+# pgdiff.sh runs a compare on each schema type in pgdiff's built-in execution plan.
 # At each step you are allowed to review and change the generated SQL before optionally running it.   
 # You are also allowed to rerun the diff on a type before continuing to the next type.  This is
 # helpful when, for example dependent views are defined in the file before the view it depends on.
@@ -41,6 +41,13 @@ read -sp "Enter DB password (defaults to previous password): " passw
 [[ -n $passw ]] && PASS2=$passw
 echo
 
+PLAN_TYPES=($(./pgdiff --plan ALL))
+rc=$? && [[ $rc != 0 ]] && exit $rc
+if [[ ${#PLAN_TYPES[@]} -eq 0 ]]; then
+    echo "No schema types returned from pgdiff --plan ALL."
+    exit 1
+fi
+
 let i=0
 function rundiff() {
     ((i++))
@@ -69,20 +76,9 @@ function rundiff() {
     echo
 }
 
-rundiff ROLE
-rundiff FUNCTION
-rundiff SCHEMA
-rundiff SEQUENCE
-rundiff TABLE
-rundiff COLUMN
-rundiff MATVIEW
-rundiff INDEX
-rundiff VIEW
-rundiff TRIGGER
-rundiff OWNER
-rundiff FOREIGN_KEY
-rundiff GRANT_RELATIONSHIP
-rundiff GRANT_ATTRIBUTE
+for TYPE in "${PLAN_TYPES[@]}"; do
+    rundiff "$TYPE"
+done
 
 echo
 echo "Done!"
