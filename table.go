@@ -32,6 +32,19 @@ SELECT table_schema
 	  WHEN 'BASE TABLE' THEN 'TABLE' 
 	  ELSE table_type END AS table_type
     , is_insertable_into
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_namespace n
+            INNER JOIN pg_catalog.pg_class c
+                ON c.relnamespace = n.oid
+               AND c.relname = table_name
+            INNER JOIN pg_catalog.pg_inherits i
+                ON i.inhrelid = c.oid
+            WHERE n.nspname = table_schema
+        ) THEN 'true'
+        ELSE 'false'
+      END AS is_inherited
 FROM information_schema.tables 
 WHERE table_type = 'BASE TABLE'
 {{if eq $.DbSchema "*" }}
@@ -153,12 +166,14 @@ func compareTables(conn1 *sql.DB, conn2 *sql.DB) {
 	for row := range rowChan1 {
 		rows1 = append(rows1, row)
 	}
+	rows1 = filterTableRows(rows1)
 	sort.Sort(rows1)
 
 	rows2 := make(TableRows, 0)
 	for row := range rowChan2 {
 		rows2 = append(rows2, row)
 	}
+	rows2 = filterTableRows(rows2)
 	sort.Sort(rows2)
 
 	// We have to explicitly type this as Schema here

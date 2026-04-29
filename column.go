@@ -38,6 +38,19 @@ SELECT table_schema
     , is_identity
     , identity_generation
     , substring(udt_name from 2) AS array_type
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_namespace n
+            INNER JOIN pg_catalog.pg_class c
+                ON c.relnamespace = n.oid
+               AND c.relname = table_name
+            INNER JOIN pg_catalog.pg_inherits i
+                ON i.inhrelid = c.oid
+            WHERE n.nspname = table_schema
+        ) THEN 'true'
+        ELSE 'false'
+      END AS is_inherited
 FROM information_schema.columns
 WHERE is_updatable = 'YES'
 {{if eq $.DbSchema "*" }}
@@ -68,23 +81,33 @@ SELECT a.table_schema
     , is_nullable
     , column_default
     , character_maximum_length
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_namespace n
+            INNER JOIN pg_catalog.pg_class c
+                ON c.relnamespace = n.oid
+               AND c.relname = a.table_name
+            INNER JOIN pg_catalog.pg_inherits i
+                ON i.inhrelid = c.oid
+            WHERE n.nspname = a.table_schema
+        ) THEN 'true'
+        ELSE 'false'
+      END AS is_inherited
 FROM information_schema.columns a
 INNER JOIN information_schema.tables b
     ON a.table_schema = b.table_schema AND
        a.table_name = b.table_name AND
        b.table_type = 'BASE TABLE'
-WHERE is_updatable = 'YES'
-{{if eq $.DbSchema "*" }}
-AND a.table_schema NOT LIKE 'pg_%' 
-AND a.table_schema <> 'information_schema' 
-{{else}}
-AND a.table_schema = '{{$.DbSchema}}'
-{{end}}
-{{ if $.TableType }}
-AND b.table_type = '{{ $.TableType }}'
-{{ end }}
-ORDER BY compare_name ASC;
-`
+	WHERE is_updatable = 'YES'
+	{{if eq $.DbSchema "*" }}
+	AND a.table_schema NOT LIKE 'pg_%' 
+	AND a.table_schema <> 'information_schema' 
+	{{else}}
+	AND a.table_schema = '{{$.DbSchema}}'
+	{{end}}
+	ORDER BY compare_name ASC;
+	`
 	t := template.New("ColumnSqlTmpl")
 	template.Must(t.Parse(sql))
 	return t
@@ -343,11 +366,11 @@ func (c *ColumnSchema) Change(obj interface{}) {
 // compare outputs SQL to make the columns match between two databases or schemas
 func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 	buf1 := new(bytes.Buffer)
-	tpl.Execute(buf1, dbInfo1)
+	check("rendering source column SQL template", tpl.Execute(buf1, dbInfo1))
 	// fmt.Println(buf1)
 
 	buf2 := new(bytes.Buffer)
-	tpl.Execute(buf2, dbInfo2)
+	check("rendering target column SQL template", tpl.Execute(buf2, dbInfo2))
 	// fmt.Println(buf2)
 
 	rowChan1, _ := pgutil.QueryStrings(conn1, buf1.String())
@@ -359,6 +382,7 @@ func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 
 		rows1 = append(rows1, row)
 	}
+	rows1 = filterColumnRows(rows1)
 	sort.Sort(rows1)
 	// fmt.Println(rows1)
 
@@ -367,6 +391,7 @@ func compare(conn1 *sql.DB, conn2 *sql.DB, tpl *template.Template) {
 	for row := range rowChan2 {
 		rows2 = append(rows2, row)
 	}
+	rows2 = filterColumnRows(rows2)
 	sort.Sort(&rows2)
 
 	// We have to explicitly type this as Schema here for some unknown reason

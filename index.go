@@ -35,6 +35,23 @@ SELECT {{if eq $.DbSchema "*" }}n.nspname || '.' || {{end}}c.relname || '.' || c
     , pg_catalog.pg_get_indexdef(i.indexrelid, 0, true) AS index_def
     , pg_catalog.pg_get_constraintdef(con.oid, true) AS constraint_def
     , con.contype AS typ
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_inherits inh
+            WHERE inh.inhrelid = c.oid
+        ) THEN 'true'
+        ELSE 'false'
+      END AS is_inherited
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_inherits inh
+            WHERE inh.inhparent = c.oid
+        ) THEN 'true'
+        ELSE 'false'
+      END AS has_inherited_children
+    , c.relkind AS table_relkind
 FROM pg_catalog.pg_index AS i
 INNER JOIN pg_catalog.pg_class AS c ON (c.oid = i.indrelid)
 INNER JOIN pg_catalog.pg_class AS c2 ON (c2.oid = i.indexrelid)
@@ -190,7 +207,7 @@ func stripSchemaIndex(input string) string {
 	// (\bON\s+|\bREFERENCES\s+) -> Capture Group 1: Match 'ON' or 'REFERENCES' plus whitespace
 	// (\w+)         -> Capture Group 2: The schema name
 	// \.            -> The literal dot
-	re := regexp.MustCompile(`(?i)(\bON\s+|\bREFERENCES\s+)(\w+)\.`)
+	re := regexp.MustCompile(`(?i)(\bON\s+(?:ONLY\s+)?|\bREFERENCES\s+)(\w+)\.`)
 
 	return re.ReplaceAllStringFunc(input, func(match string) string {
 		submatches := re.FindStringSubmatch(match)
@@ -271,8 +288,8 @@ func (c *IndexSchema) Change(obj interface{}) {
 
 	// At this point, we know that the constraint_def matches.  Compare the index_def
 
-	indexDef1 := stripSchemaIndex(c.get("index_def"))
-	indexDef2 := stripSchemaIndex(c2.get("index_def"))
+	indexDef1 := normalizeIndexDef(c.get("index_def"))
+	indexDef2 := normalizeIndexDef(c2.get("index_def"))
 
 	// fmt.Println(indexDef1)
 	// fmt.Println(indexDef2)
@@ -322,12 +339,18 @@ func compareIndexes(conn1 *sql.DB, conn2 *sql.DB) {
 	for row := range rowChan1 {
 		rows1 = append(rows1, row)
 	}
-	sort.Sort(rows1)
 
 	rows2 := make(IndexRows, 0)
 	for row := range rowChan2 {
 		rows2 = append(rows2, row)
 	}
+
+	skipTables := mergeStringSets(collectPartitionedIndexTables(rows1), collectPartitionedIndexTables(rows2))
+
+	rows1 = filterIndexRows(rows1, skipTables)
+	sort.Sort(rows1)
+
+	rows2 = filterIndexRows(rows2, skipTables)
 	sort.Sort(rows2)
 
 	// We have to explicitly type this as Schema here for some unknown reason

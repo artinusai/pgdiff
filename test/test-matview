@@ -1,0 +1,66 @@
+#!/bin/bash
+set -euo pipefail
+
+source ./assert.sh
+source ./start-fresh.sh >/dev/null
+
+echo
+echo ==========================================================
+echo
+
+./populate-db.sh db1 "
+    CREATE SCHEMA s1;
+    CREATE SCHEMA s2;
+    CREATE TABLE s1.table1 (id integer, name varchar(30));
+    CREATE TABLE s2.table1 (id integer, name varchar(30));
+    INSERT INTO s1.table1 VALUES (1, 'a');
+    INSERT INTO s2.table1 VALUES (1, 'a');
+
+    CREATE MATERIALIZED VIEW s1.mv_add AS SELECT id FROM s1.table1;
+    CREATE INDEX mv_add_idx ON s1.mv_add (id);
+
+    CREATE MATERIALIZED VIEW s1.mv_change AS SELECT id FROM s1.table1;
+    CREATE INDEX mv_change_idx ON s1.mv_change (id);
+
+    CREATE MATERIALIZED VIEW s2.mv_change AS SELECT name FROM s2.table1;
+    CREATE INDEX mv_change_idx ON s2.mv_change (name);
+
+    CREATE MATERIALIZED VIEW s2.mv_drop AS SELECT id FROM s2.table1;
+    CREATE INDEX mv_drop_idx ON s2.mv_drop (id);
+"
+
+output=$(../pgdiff -U "u1" -W "asdf" -H "localhost" -D "db1" -S "s1" -O "sslmode=disable" \
+                  -u "u1" -w "asdf" -h "localhost" -d "db1" -s "s2" -o "sslmode=disable" \
+                  MATVIEW | clean_pgdiff_output)
+assert_contains "$output" "CREATE MATERIALIZED VIEW s2.mv_add AS"
+assert_contains "$output" "ON s2.mv_add"
+assert_contains "$output" "DROP MATERIALIZED VIEW s2.mv_change;"
+assert_contains "$output" "CREATE MATERIALIZED VIEW s2.mv_change AS"
+assert_contains "$output" "DROP MATERIALIZED VIEW s2.mv_drop;"
+printf '%s\n' "$output"
+
+echo
+echo ==========================================================
+echo
+
+./populate-db.sh db2 "
+    CREATE SCHEMA s1;
+    CREATE SCHEMA s2;
+    CREATE TABLE s1.table1 (id integer);
+    CREATE TABLE s2.table1 (id integer);
+    INSERT INTO s1.table1 VALUES (1);
+    INSERT INTO s2.table1 VALUES (1);
+
+    CREATE MATERIALIZED VIEW s2.mv_keep AS SELECT id FROM s2.table1;
+    CREATE INDEX mv_keep_idx ON s2.mv_keep (id);
+
+    CREATE MATERIALIZED VIEW s2.mv_drop AS SELECT id FROM s2.table1;
+    CREATE INDEX mv_drop_idx ON s2.mv_drop (id);
+"
+
+output=$(../pgdiff -U "u1" -W "asdf" -H "localhost" -D "db1" -S "*" -O "sslmode=disable" \
+                  -u "u1" -w "asdf" -h "localhost" -d "db2" -s "*" -o "sslmode=disable" \
+                  MATVIEW | clean_pgdiff_output)
+assert_contains "$output" "CREATE MATERIALIZED VIEW s1.mv_add AS"
+assert_contains "$output" "DROP MATERIALIZED VIEW s2.mv_drop;"
+printf '%s\n' "$output"

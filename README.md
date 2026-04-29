@@ -14,28 +14,23 @@ pgdiff is written to be easy to expand and improve the accuracy of the diff.
 ### usage
 	pgdiff [options] <schemaType>
 
-(where options and &lt;schemaType&gt; are listed below)
+ (where options are listed below; run `pgdiff --help` for supported schema types)
 
 There seems to be an ideal order for running the different schema types.  This order should minimize the problems you encounter.  For example, you will always want to add new tables before you add new columns.
 
 In addition, some types can have dependencies which are not in the right order.  A classic case is views which depend on other views.  The missing view SQL is generated in alphabetical order so if a view create fails due to a missing view, just run the views SQL file over again. The pgdiff.sh script will prompt you about running it again.
- 
-Schema type ordering:
 
-1. SCHEMA
-1. ROLE
-1. SEQUENCE
-1. TABLE
-1. COLUMN
-1. INDEX
-1. VIEW
-1. FOREIGN\_KEY
-1. FUNCTION
-1. TRIGGER
-1. OWNER
-1. GRANT\_RELATIONSHIP
-1. GRANT\_ATTRIBUTE
-1. ALL (all above in one run)
+The canonical execution plan is built into `pgdiff`, and `pgdiff.sh` uses that same plan instead of keeping its own copy.  To print the current order for a full run, use:
+
+```
+pgdiff --plan ALL
+```
+
+`TABLE_PLUS` has its own plan as well:
+
+```
+pgdiff --plan TABLE_PLUS
+```
 
 
 ### example
@@ -54,6 +49,7 @@ options           | explanation
 ----------------: | ------------------------------------
   -V, --version   | prints the version of pgdiff being used
   -?, --help      | displays helpful usage information
+      --plan      | prints the canonical execution plan for a schema type
   -U, --user1     | first postgres user
   -u, --user2     | second postgres user
   -W, --password1 | first db password
@@ -78,7 +74,7 @@ linux and osx binaries are packaged with an extra, optional bash script and pgru
 1. untar it:  ```tar -xzvf pgdiff.tgz```
 1. cd to the new pgdiff directory
 1. edit the db connection defaults in pgdiff.sh 
-1. ...or manually run pgdiff for each schema type listed in the usage section above
+1. ...or manually run pgdiff for each schema type returned by `pgdiff --plan ALL`
 1. review the SQL output for each schema type and, if you want to make them match, run it against the second db
 
 
@@ -86,7 +82,7 @@ linux and osx binaries are packaged with an extra, optional bash script and pgru
 
 1. download pgdiff.exe from the bin-win directory on github
 1. either install cygwin so you can run pgdiff.sh or...
-1. manually run pgdiff.exe for each schema type listed in the usage section above
+1. manually run pgdiff.exe for each schema type returned by `pgdiff.exe --plan ALL`
 1. review the SQL output and, if you want to make them match, run it against the second db
 
 This project works on Windows, just not as nicely as it does for Linux and Mac.  If you are inclined to write a Windows complement to the pgdiff.sh script, feel free to contribute it or we can link to it.  Even better would be a replacement written in Go.

@@ -52,6 +52,7 @@ func init() {
  */
 func main() {
 	var helpPtr = flag.BoolP("help", "?", false, "print help information")
+	var planPtr = flag.Bool("plan", false, "print the execution plan for the selected schema type and exit")
 	var versionPtr = flag.BoolP("version", "V", false, "print version information")
 
 	dbInfo1, dbInfo2 = parseFlags()
@@ -72,8 +73,12 @@ func main() {
 	}
 
 	if len(args) == 0 {
-		fmt.Println("The required first argument is SchemaType: SCHEMA, ROLE, SEQUENCE, TABLE, VIEW, MATVIEW, COLUMN, INDEX, FOREIGN_KEY, OWNER, GRANT_RELATIONSHIP, GRANT_ATTRIBUTE")
-		os.Exit(1)
+		if *planPtr {
+			args = []string{"ALL"}
+		} else {
+			fmt.Println("The required first argument is SchemaType:", schemaTypesText())
+			os.Exit(1)
+		}
 	}
 
 	// Verify schemas
@@ -84,6 +89,17 @@ func main() {
 	}
 
 	schemaType = strings.ToUpper(args[0])
+	plan, err := buildExecutionPlan(schemaType, dbInfo1, dbInfo2)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	if *planPtr {
+		printExecutionPlan(plan)
+		return
+	}
+
 	fmt.Println("-- schemaType:", schemaType)
 
 	// fmt.Println("-- db1:", dbInfo1)
@@ -96,76 +112,7 @@ func main() {
 	conn2, err := dbInfo2.Open()
 	check("opening database 2", err)
 
-	// This section needs to be improved so that you do not need to choose the type
-	// of alter statements to generate.  Rather, all should be generated in the
-	// proper order.
-	if schemaType == "ALL" {
-		if dbInfo1.DbSchema == "*" {
-			compareSchematas(conn1, conn2)
-		}
-		compareSchematas(conn1, conn2)
-		compareRoles(conn1, conn2)
-		compareSequences(conn1, conn2)
-		compareTables(conn1, conn2)
-		compareColumns(conn1, conn2)
-		compareIndexes(conn1, conn2) // includes PK and Unique constraints
-		compareViews(conn1, conn2)
-		compareMatViews(conn1, conn2)
-		compareForeignKeys(conn1, conn2)
-		compareFunctions(conn1, conn2)
-		compareTriggers(conn1, conn2)
-		compareOwners(conn1, conn2)
-		compareGrantRelationships(conn1, conn2)
-		compareGrantAttributes(conn1, conn2)
-	} else if schemaType == "SCHEMA" {
-		compareSchematas(conn1, conn2)
-	} else if schemaType == "TABLE_PLUS" {
-		// fmt.Println(">>>>>>> 1")
-		compareTables(conn1, conn2)
-		// fmt.Println(">>>>>>> 2")
-		compareSequences(conn1, conn2)
-		// fmt.Println(">>>>>>> 3")
-		compareColumns(conn1, conn2)
-		// fmt.Println(">>>>>>> 4")
-		compareIndexes(conn1, conn2) // includes PK and Unique constraints
-		// fmt.Println(">>>>>>> 5")
-		compareForeignKeys(conn1, conn2)
-		// fmt.Println(">>>>>>> 6")
-		compareFunctions(conn1, conn2)
-		// fmt.Println(">>>>>>> 7")
-		compareTriggers(conn1, conn2)
-	} else if schemaType == "ROLE" {
-		compareRoles(conn1, conn2)
-	} else if schemaType == "SEQUENCE" {
-		compareSequences(conn1, conn2)
-	} else if schemaType == "TABLE" {
-		compareTables(conn1, conn2)
-	} else if schemaType == "COLUMN" {
-
-		compareColumns(conn1, conn2)
-	} else if schemaType == "TABLE_COLUMN" {
-		compareTableColumns(conn1, conn2)
-	} else if schemaType == "INDEX" {
-		compareIndexes(conn1, conn2)
-	} else if schemaType == "VIEW" {
-		compareViews(conn1, conn2)
-	} else if schemaType == "MATVIEW" {
-		compareMatViews(conn1, conn2)
-	} else if schemaType == "FOREIGN_KEY" {
-		compareForeignKeys(conn1, conn2)
-	} else if schemaType == "FUNCTION" {
-		compareFunctions(conn1, conn2)
-	} else if schemaType == "TRIGGER" {
-		compareTriggers(conn1, conn2)
-	} else if schemaType == "OWNER" {
-		compareOwners(conn1, conn2)
-	} else if schemaType == "GRANT_RELATIONSHIP" {
-		compareGrantRelationships(conn1, conn2)
-	} else if schemaType == "GRANT_ATTRIBUTE" {
-		compareGrantAttributes(conn1, conn2)
-	} else {
-		fmt.Println("Not yet handled:", schemaType)
-	}
+	runExecutionPlan(conn1, conn2, plan)
 }
 
 /*
@@ -222,13 +169,14 @@ func doDiff(db1 Schema, db2 Schema) {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "%s - version %s\n", os.Args[0], version)
-	fmt.Fprintf(os.Stderr, "usage: %s [<options>] <schemaType> \n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "usage: %s [<options>] [<schemaType>] \n", os.Args[0])
 	fmt.Fprintln(os.Stderr, `
 Compares the schema between two PostgreSQL databases and generates alter statements 
 that can be *manually* run against the second database.
 
 Options:
   -?, --help    : print help information
+      --plan    : print the execution plan for <schemaType> and exit (defaults to ALL)
   -V, --version : print version information
   -v, --verbose : print extra run information
   -U, --user1   : first postgres user 
@@ -242,7 +190,7 @@ Options:
   -S, --schema1 : first schema.  default is all schemas
   -s, --schema2 : second schema. default is all schemas
 
-<schemaTpe> can be: ALL, SCHEMA, ROLE, SEQUENCE, TABLE, TABLE_COLUMN, VIEW, MATVIEW, COLUMN, INDEX, FOREIGN_KEY, OWNER, GRANT_RELATIONSHIP, GRANT_ATTRIBUTE, TRIGGER, FUNCTION`)
+<schemaType> can be: `+schemaTypesText()+"\n")
 
 	os.Exit(2)
 }

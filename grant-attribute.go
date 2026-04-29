@@ -162,14 +162,16 @@ func (c *GrantAttributeSchema) Add() {
 		schema = c.get("schema_name")
 	}
 
-	role, grants := parseGrants(c.get("attribute_acl"))
-	fmt.Printf("GRANT %s (%s) ON %s.%s TO %s; -- Add\n", strings.Join(grants, ", "), c.get("attribute_name"), schema, c.get("relationship_name"), role)
+	role, grants := parseGrantPrivileges(c.get("attribute_acl"))
+	emitGrantAttributeStatements(schema, c.get("relationship_name"), c.get("attribute_name"), role, diffGrantPrivileges(grants, GrantPrivileges{}), "Add")
 }
 
 // Drop prints SQL to drop the grant
 func (c *GrantAttributeSchema) Drop() {
-	role, grants := parseGrants(c.get("attribute_acl"))
-	fmt.Printf("REVOKE %s (%s) ON %s.%s FROM %s; -- Drop\n", strings.Join(grants, ", "), c.get("attribute_name"), c.get("schema_name"), c.get("relationship_name"), role)
+	role, grants := parseGrantPrivileges(c.get("attribute_acl"))
+	if len(grants.Privileges) > 0 {
+		fmt.Printf("REVOKE %s (%s) ON %s.%s FROM %s; -- Drop\n", strings.Join(grants.Privileges, ", "), c.get("attribute_name"), c.get("schema_name"), c.get("relationship_name"), role)
+	}
 }
 
 // Change handles the case where the relationship and column match, but the grant does not
@@ -179,36 +181,27 @@ func (c *GrantAttributeSchema) Change(obj interface{}) {
 		fmt.Println("-- Error!!!, Change needs a GrantAttributeSchema instance", c2)
 	}
 
-	role, grants1 := parseGrants(c.get("attribute_acl"))
-	_, grants2 := parseGrants(c2.get("attribute_acl"))
-
-	// Find grants in the first db that are not in the second
-	// (for this relationship and owner)
-	var grantList []string
-	for _, g := range grants1 {
-		if !misc.ContainsString(grants2, g) {
-			grantList = append(grantList, g)
-		}
-	}
-	if len(grantList) > 0 {
-		fmt.Printf("GRANT %s (%s) ON %s.%s TO %s; -- Change\n", strings.Join(grantList, ", "),
-			c.get("attribute_name"), c2.get("schema_name"), c.get("relationship_name"), role)
-	}
-
-	// Find grants in the second db that are not in the first
-	// (for this relationship and owner)
-	var revokeList []string
-	for _, g := range grants2 {
-		if !misc.ContainsString(grants1, g) {
-			revokeList = append(revokeList, g)
-		}
-	}
-	if len(revokeList) > 0 {
-		fmt.Printf("REVOKE %s (%s) ON %s.%s FROM %s; -- Change\n", strings.Join(revokeList, ", "), c.get("attribute_name"), c2.get("schema_name"), c.get("relationship_name"), role)
-	}
+	role, grants1 := parseGrantPrivileges(c.get("attribute_acl"))
+	_, grants2 := parseGrantPrivileges(c2.get("attribute_acl"))
+	emitGrantAttributeStatements(c2.get("schema_name"), c.get("relationship_name"), c.get("attribute_name"), role, diffGrantPrivileges(grants1, grants2), "Change")
 
 	//fmt.Printf("--1 rel:%s, relAcl:%s, col:%s, colAcl:%s\n", c.get("attribute_name"), c.get("attribute_acl"), c.get("attribute_name"), c.get("attribute_acl"))
 	//fmt.Printf("--2 rel:%s, relAcl:%s, col:%s, colAcl:%s\n", c2.get("attribute_name"), c2.get("attribute_acl"), c2.get("attribute_name"), c2.get("attribute_acl"))
+}
+
+func emitGrantAttributeStatements(schema string, relationshipName string, attributeName string, role string, diff GrantPrivilegeDiff, action string) {
+	if len(diff.GrantPrivileges) > 0 {
+		fmt.Printf("GRANT %s (%s) ON %s.%s TO %s; -- %s\n", strings.Join(diff.GrantPrivileges, ", "), attributeName, schema, relationshipName, role, action)
+	}
+	if len(diff.GrantOptionPrivileges) > 0 {
+		fmt.Printf("GRANT %s (%s) ON %s.%s TO %s WITH GRANT OPTION; -- %s\n", strings.Join(diff.GrantOptionPrivileges, ", "), attributeName, schema, relationshipName, role, action)
+	}
+	if len(diff.RevokeGrantOptionPrivileges) > 0 {
+		fmt.Printf("REVOKE GRANT OPTION FOR %s (%s) ON %s.%s FROM %s; -- %s\n", strings.Join(diff.RevokeGrantOptionPrivileges, ", "), attributeName, schema, relationshipName, role, action)
+	}
+	if len(diff.RevokePrivileges) > 0 {
+		fmt.Printf("REVOKE %s (%s) ON %s.%s FROM %s; -- %s\n", strings.Join(diff.RevokePrivileges, ", "), attributeName, schema, relationshipName, role, action)
+	}
 }
 
 // ==================================

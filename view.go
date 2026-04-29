@@ -29,7 +29,7 @@ func (slice ViewRows) Len() int {
 }
 
 func (slice ViewRows) Less(i, j int) bool {
-	return slice[i]["viewname"] < slice[j]["viewname"]
+	return slice[i]["compare_name"] < slice[j]["compare_name"]
 }
 
 func (slice ViewRows) Swap(i, j int) {
@@ -75,19 +75,19 @@ func (c *ViewSchema) Compare(obj interface{}) int {
 		return +999
 	}
 
-	val := misc.CompareStrings(c.get("viewname"), c2.get("viewname"))
+	val := misc.CompareStrings(c.get("compare_name"), c2.get("compare_name"))
 	//fmt.Printf("-- Compared %v: %s with %s \n", val, c.get("viewname"), c2.get("viewname"))
 	return val
 }
 
 // Add returns SQL to create the view
 func (c ViewSchema) Add() {
-	fmt.Printf("CREATE VIEW %s AS %s \n\n", c.get("viewname"), c.get("definition"))
+	fmt.Printf("CREATE VIEW %s.%s AS %s \n\n", viewTargetSchema(c.get("schema_name")), c.get("viewname"), c.get("definition"))
 }
 
 // Drop returns SQL to drop the view
 func (c ViewSchema) Drop() {
-	fmt.Printf("DROP VIEW %s;\n\n", c.get("viewname"))
+	fmt.Printf("DROP VIEW %s.%s;\n\n", c.get("schema_name"), c.get("viewname"))
 }
 
 // Change handles the case where the names match, but the definition does not
@@ -97,8 +97,8 @@ func (c ViewSchema) Change(obj interface{}) {
 		fmt.Println("Error!!!, Change needs a ViewSchema instance", c2)
 	}
 	if c.get("definition") != c2.get("definition") {
-		fmt.Printf("DROP VIEW %s;\n", c.get("viewname"))
-		fmt.Printf("CREATE VIEW %s AS %s \n\n", c.get("viewname"), c.get("definition"))
+		fmt.Printf("DROP VIEW %s.%s;\n", c2.get("schema_name"), c.get("viewname"))
+		fmt.Printf("CREATE VIEW %s.%s AS %s \n\n", viewTargetSchema(c2.get("schema_name")), c.get("viewname"), c.get("definition"))
 	}
 }
 
@@ -108,12 +108,20 @@ var (
 
 func initViewSqlTemplate() *template.Template {
 	sql := `
-	SELECT viewname AS viewname
-		, definition 
-	FROM pg_views 
-	WHERE  schemaname = '{{$.DbSchema}}'
-	ORDER BY viewname;
-	`
+		SELECT schemaname AS schema_name
+			, {{if eq $.DbSchema "*" }}schemaname || '.' || {{end}}viewname AS compare_name
+			, viewname AS viewname
+			, definition 
+		FROM pg_views 
+		WHERE true
+		{{if eq $.DbSchema "*" }}
+		AND schemaname NOT LIKE 'pg_%' 
+		AND schemaname <> 'information_schema' 
+		{{else}}
+		AND schemaname = '{{$.DbSchema}}'
+		{{end}}
+		ORDER BY compare_name;
+		`
 
 	t := template.New("ViewSqlTmpl")
 	template.Must(t.Parse(sql))
@@ -175,4 +183,11 @@ func compareViews(conn1 *sql.DB, conn2 *sql.DB) {
 
 	// Compare the views
 	doDiff(schema1, schema2)
+}
+
+func viewTargetSchema(schemaName string) string {
+	if dbInfo1.DbSchema != dbInfo2.DbSchema {
+		return dbInfo2.DbSchema
+	}
+	return schemaName
 }

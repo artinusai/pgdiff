@@ -32,6 +32,14 @@ func initTriggerSqlTemplate() *template.Template {
        , t.tgname AS trigger_name
        , pg_catalog.pg_get_triggerdef(t.oid, true) AS trigger_def
        , t.tgenabled AS enabled
+       , CASE
+           WHEN EXISTS (
+               SELECT 1
+               FROM pg_catalog.pg_inherits inh
+               WHERE inh.inhrelid = c.oid
+           ) THEN 'true'
+           ELSE 'false'
+         END AS is_inherited
     FROM pg_catalog.pg_trigger t
     INNER JOIN pg_catalog.pg_class c ON (c.oid = t.tgrelid)
     INNER JOIN pg_catalog.pg_namespace n ON (n.oid = c.relnamespace)
@@ -204,12 +212,14 @@ func compareTriggers(conn1 *sql.DB, conn2 *sql.DB) {
 	for row := range rowChan1 {
 		rows1 = append(rows1, row)
 	}
+	rows1 = filterTriggerRows(rows1)
 	sort.Sort(rows1)
 
 	rows2 := make(TriggerRows, 0)
 	for row := range rowChan2 {
 		rows2 = append(rows2, row)
 	}
+	rows2 = filterTriggerRows(rows2)
 	sort.Sort(rows2)
 
 	// We must explicitly type this as Schema here

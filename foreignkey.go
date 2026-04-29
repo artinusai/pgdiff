@@ -31,6 +31,14 @@ SELECT {{if eq $.DbSchema "*" }}ns.nspname || '.' || {{end}}cl.relname || '.' ||
 	, cl.relname AS table_name
     , c.conname AS fk_name
 	, pg_catalog.pg_get_constraintdef(c.oid, true) as constraint_def
+    , CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_inherits inh
+            WHERE inh.inhrelid = cl.oid
+        ) THEN 'true'
+        ELSE 'false'
+      END AS is_inherited
 FROM pg_catalog.pg_constraint c
 INNER JOIN pg_class AS cl ON (c.conrelid = cl.oid)
 INNER JOIN pg_namespace AS ns ON (ns.oid = c.connamespace)
@@ -206,12 +214,14 @@ func compareForeignKeys(conn1 *sql.DB, conn2 *sql.DB) {
 	for row := range rowChan1 {
 		rows1 = append(rows1, row)
 	}
+	rows1 = filterForeignKeyRows(rows1)
 	sort.Sort(rows1)
 
 	rows2 := make(ForeignKeyRows, 0)
 	for row := range rowChan2 {
 		rows2 = append(rows2, row)
 	}
+	rows2 = filterForeignKeyRows(rows2)
 	sort.Sort(rows2)
 
 	// We have to explicitly type this as Schema here for some unknown reason
